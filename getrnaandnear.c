@@ -75,8 +75,11 @@
 #define CHAIN_NEAR   2
 
 /* Distance cutoffs                                                     */
-#define BOXDISTCUTOFF 8
+#define DISTCUTOFF 8
 #define DISTCUTOFFSQ 64   /* 8A cutoff */
+
+/* String buffer                                                        */
+#define MAXBUFF 1024
 
 /* Extra chain info                                                     */
 typedef struct
@@ -93,7 +96,6 @@ typedef struct
 /* Prototypes
 */
 int main(int argc, char **argv);
-void ProcessPDB(FILE *out, PDBSTRUCT *pdbs);
 int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX);
 BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2);
 void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
@@ -101,29 +103,41 @@ void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
 void AssignChainTypes(PDBSTRUCT *pdbs);
 void FindChainsNearRNA(PDBSTRUCT *pdbs);
 void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs);
+BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile);
+void Usage(void);
 
 
 /************************************************************************/
+/*>int main(int argc, char **argv)
+   -------------------------------
+   Main program
+
+   03.03.10  Original   By: ACRM
+*/
 int main(int argc, char **argv)
 {
-   FILE *in;
-   FILE *out;
+   FILE *in = stdin;
+   FILE *out = stdout;
    PDB  *pdb;
    PDBSTRUCT *pdbstruct;
    int  natoms;
+   char infile[MAXBUFF],
+        outfile[MAXBUFF];
+   
+
+   if(!ParseCmdLine(argc, argv, infile, outfile))
+   {
+      Usage();
+      return(0);
+   }
    
    /* Open files                                                        */
-   if((in=fopen(argv[1], "r"))==NULL)
+   if(!OpenStdFiles(infile, outfile, &in, &out))
    {
-      fprintf(stderr, "Can't read file %s\n", argv[0]);
+      fprintf(stderr, "Unable to open input or output files\n");
       return(1);
    }
-   if((out=fopen(argv[2], "w"))==NULL)
-   {
-      fprintf(stderr, "Can't write file %s\n", argv[1]);
-      return(1);
-   }
-
+   
    /* Read and format data                                              */
    if((pdb = ReadPDB(in, &natoms)) == NULL)
    {
@@ -136,7 +150,9 @@ int main(int argc, char **argv)
    }
 
    /* Process the data to find and print chains of interest             */
-   ProcessPDB(out, pdbstruct);
+   AssignChainTypes(pdbstruct);
+   FindChainsNearRNA(pdbstruct);
+   PrintRNANearChains(out, pdbstruct);
 
    /* Clean up                                                          */
    FreePDBStructure(pdbstruct);
@@ -145,17 +161,27 @@ int main(int argc, char **argv)
    return(0);
 }
 
-/************************************************************************/
-void ProcessPDB(FILE *out, PDBSTRUCT *pdbs)
-{
-   AssignChainTypes(pdbs);
-   FindChainsNearRNA(pdbs);
-   PrintRNANearChains(out, pdbs);
-}
 
 /************************************************************************/
 /*>int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX)
    --------------------------------------------------------------
+   Input:   PDB  *start      Start of PDB linked list
+            PDB  *stop       End of PDB linked list (or NULL)
+            BOOL doPep       Count peptides as a separate type
+            BOOL doX         Count chains with >25% of residues as non
+                             standard amino acids as nonstandard chains
+   Returns: int              Chain type
+
+   Works out the type of a chain specified by the PDB pointer boundaries.
+   The chain type is returned as 
+   TYPE_UNDEF   0
+   TYPE_RNA     1
+   TYPE_DNA     2
+   TYPE_PROTEIN 3
+   TYPE_HYBRID  4
+   TYPE_PEPTIDE 5 (if doPep true - otherwise TYPE_PROTEIN)
+   TYPE_NONSTD  6 (if doX true - otherwise TYPE_PROTEIN)
+
    10.03.09 Original   By: ACRM
    30.03.09 Changed to use FindNextResidue() rather than checking every 
             atom. Also counts residues and checks for peptides and
@@ -279,6 +305,14 @@ int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX)
 
 
 /************************************************************************/
+/*>void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, 
+                  REAL *ymin, REAL *ymax, REAL *zmin, REAL *zmax)
+   --------------------------------------------------------------
+   Run through a PDB linked list between start and stop and define the
+   bounging box
+
+   03.03.10  Original   By: ACRM
+*/
 void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
                REAL *ymax, REAL *zmin, REAL *zmax)
 {
@@ -320,25 +354,32 @@ void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
 }
 
 /************************************************************************/
+/*>BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
+   ----------------------------------------------------
+   Look to see if the bounding box of one chain is within DISTCUTOFF
+   Angstroms of the bounding box of the second chain
+
+   03.03.10  Original   By: ACRM
+*/
 BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
 {
-   if(((((CHAININFO *)chain1->extras)->xmax) + BOXDISTCUTOFF) >
+   if(((((CHAININFO *)chain1->extras)->xmax) + DISTCUTOFF) >
       (((CHAININFO *)chain2->extras)->xmin))
       return(TRUE);
-   if(((((CHAININFO *)chain1->extras)->ymax) + BOXDISTCUTOFF) >
+   if(((((CHAININFO *)chain1->extras)->ymax) + DISTCUTOFF) >
       (((CHAININFO *)chain2->extras)->ymin))
       return(TRUE);
-   if(((((CHAININFO *)chain1->extras)->zmax) + BOXDISTCUTOFF) >
+   if(((((CHAININFO *)chain1->extras)->zmax) + DISTCUTOFF) >
       (((CHAININFO *)chain2->extras)->zmin))
       return(TRUE);
    
-   if(((((CHAININFO *)chain2->extras)->xmax) + BOXDISTCUTOFF) >
+   if(((((CHAININFO *)chain2->extras)->xmax) + DISTCUTOFF) >
       (((CHAININFO *)chain1->extras)->xmin))
       return(TRUE);
-   if(((((CHAININFO *)chain2->extras)->ymax) + BOXDISTCUTOFF) >
+   if(((((CHAININFO *)chain2->extras)->ymax) + DISTCUTOFF) >
       (((CHAININFO *)chain1->extras)->ymin))
       return(TRUE);
-   if(((((CHAININFO *)chain2->extras)->zmax) + BOXDISTCUTOFF) >
+   if(((((CHAININFO *)chain2->extras)->zmax) + DISTCUTOFF) >
       (((CHAININFO *)chain1->extras)->zmin))
       return(TRUE);
    
@@ -346,6 +387,15 @@ BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
 }
 
 
+/************************************************************************/
+/*>void AssignChainTypes(PDBSTRUCT *pdbs)
+   --------------------------------------
+   Runs through the chains, allocating memory for the 'extras' structure
+   of type CHAININFO and setting the chain type, then calling the code
+   to find the bounding box of each chain
+
+   03.03.10  Original   By: ACRM
+*/
 void AssignChainTypes(PDBSTRUCT *pdbs)
 {
    PDBCHAIN  *chain;
@@ -386,7 +436,12 @@ void AssignChainTypes(PDBSTRUCT *pdbs)
 
 
 /************************************************************************/
-/*** Look for chains which are near to RNA chains ***/
+/*>void FindChainsNearRNA(PDBSTRUCT *pdbs)
+   ---------------------------------------
+   Does the main work of identifying chains which are near to RNA chains 
+
+   03.03.10  Original   By: ACRM
+*/
 void FindChainsNearRNA(PDBSTRUCT *pdbs)
 {
    PDBCHAIN  *chain1, *chain2;
@@ -423,11 +478,11 @@ void FindChainsNearRNA(PDBSTRUCT *pdbs)
                            fprintf(stderr,"Near Chain %s\n", 
                                    chain2->chain);
                            /* Break out of the atom searches            */
-                           q = chain2->stop;  /* Exit inner loop        */
-                           p = chain1->stop;  /* Exit outer loop        */
+                           goto breakout;
                         }
                      }  /* for() atoms in second chain                  */
                   }  /* for() atoms in first chain                      */
+breakout:         continue;
                }  /* if boxes are close enough                          */
             }  /* if second chain not already RNA or NEAR               */
          }  /* for() each second chain                                  */
@@ -437,6 +492,13 @@ void FindChainsNearRNA(PDBSTRUCT *pdbs)
 
 
 /************************************************************************/
+/*>void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs)
+   ---------------------------------------------------
+   Print the RNA chains and the other chains which have been identified
+   as being near to RNA chains
+
+   03.03.10  Original   By: ACRM
+*/
 void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs)
 {
    PDBCHAIN *chain;
@@ -457,3 +519,92 @@ void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs)
    }
 }
 
+/************************************************************************/
+/*>BOOL ParseCmdLine(int argc, char **argv, char *ssfile, char *pdbfile, 
+                     char *infile, char *outfile, char *chain, 
+                     BOOL *verbose, int *flex)
+   ----------------------------------------------------------------------
+   Input:   int   argc     Command line argc
+            char  **argv   Command line argv
+   Output:  char  *infile  Input PDB filename (or blank string)
+            char  *outfile Output PDB filename (or blank string)
+   Returns: BOOL           Success
+
+   Parse the command line
+
+   03.03.10  Original   By: ACRM
+*/
+BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile)
+{
+   argc--;
+   argv++;
+
+   infile[0] = outfile[0] = '\0';
+   
+   while(argc)
+   {
+      if(argv[0][0] == '-')
+      {
+         switch(argv[0][1])
+         {
+         case 'h':
+            return(FALSE);
+            break;
+         default:
+            return(FALSE);
+            break;
+         }
+      }
+      else
+      {
+         /* Check that there are 1 or 2 arguments left                  */
+         if(argc > 2)
+            return(FALSE);
+         
+         /* If another, Copy to infile                                  */
+         if(argc)
+         {
+            strcpy(infile, argv[0]);
+            argc--;
+            argv++;
+         }
+         
+         /* If there's another, copy it to outfile                      */
+         if(argc)
+         {
+            strcpy(outfile, argv[0]);
+            argc--;
+            argv++;
+         }
+            
+         return(TRUE);
+      }
+      argc--;
+      argv++;
+   }
+   
+   return(TRUE);
+}
+
+
+/************************************************************************/
+/*>void Usage(void)
+   ----------------
+   Prints a usage message 
+
+   03.03.10  Original   By: ACRM
+*/
+void Usage(void)
+{
+   fprintf(stderr,"\ngetrnaandnear V1.0 (C) Dr. Andrew C.R Martin, \
+UCL\n");
+
+   fprintf(stderr,"\nUsage: getrnaandnear [infile [outfile]]\n");
+
+   fprintf(stderr,"\ngetrnaandnear extracts RNA chains and chains that \
+are within %.1f A\n", (REAL)DISTCUTOFF);
+   fprintf(stderr,"of an RNA chain. It is used for cutting down huge \
+structures such\n");
+   fprintf(stderr,"as ribosomes before processing with programs like \
+ligplot\n\n");
+}
