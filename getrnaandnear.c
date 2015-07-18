@@ -55,6 +55,7 @@
 #include "bioplib/pdb.h"
 #include "bioplib/seq.h"
 #include "bioplib/macros.h"
+#include "bioplib/SysDefs.h"
 
 /************************************************************************/
 /* Defines and macros
@@ -72,6 +73,7 @@
 #define CHAIN_RNA    1
 #define CHAIN_NEAR   2
 
+#define BOXDISTCUTOFF 8
 #define DISTCUTOFFSQ 64   /* 8A cutoff */
 
 typedef struct
@@ -90,6 +92,11 @@ typedef struct
 int main(int argc, char **argv);
 void ProcessPDB(FILE *out, PDBSTRUCT *pdbs);
 int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX);
+BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2);
+void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
+               REAL *ymax, REAL *zmin, REAL *zmax);
+
+
 
 /************************************************************************/
 int main(int argc, char **argv)
@@ -157,6 +164,14 @@ void ProcessPDB(FILE *out, PDBSTRUCT *pdbs)
       {
          ((CHAININFO *)chain->extras)->type = CHAIN_NULL;
       }
+
+      SetBounds(chain->start, chain->stop, 
+                &(((CHAININFO *)chain->extras)->xmin),
+                &(((CHAININFO *)chain->extras)->xmax),
+                &(((CHAININFO *)chain->extras)->ymin),
+                &(((CHAININFO *)chain->extras)->ymax),
+                &(((CHAININFO *)chain->extras)->zmin),
+                &(((CHAININFO *)chain->extras)->zmax));
    }
 
    /*** Look for chains which are near to RNA chains ***/
@@ -174,21 +189,25 @@ void ProcessPDB(FILE *out, PDBSTRUCT *pdbs)
             if((((CHAININFO *)chain2->extras)->type != CHAIN_RNA) &&
                (((CHAININFO *)chain2->extras)->type != CHAIN_NEAR))
             {
-               /* Run through atoms in first chain */
-               for(p=chain1->start; p!=chain1->stop; NEXT(p))
+               /* If the bounding boxes are the chains are close enough */
+               if(CheckBounds(chain1, chain2))
                {
-                  /* Run through atoms in second chain */
-                  for(q=chain2->start; q!=chain2->stop; NEXT(q))
+                  /* Run through atoms in first chain */
+                  for(p=chain1->start; p!=chain1->stop; NEXT(p))
                   {
-                     /* If they are within specified distance */
-                     if(DISTSQ(p,q) < DISTCUTOFFSQ)
+                     /* Run through atoms in second chain */
+                     for(q=chain2->start; q!=chain2->stop; NEXT(q))
                      {
-                        /* Flag the second chain as being near RNA */
-                        ((CHAININFO *)chain2->extras)->type = CHAIN_NEAR;
-                        fprintf(stderr,"Near Chain %s\n", chain2->chain);
-                        /* Break out of the atom searches */
-                        q = chain2->stop;  /* Exit inner loop */
-                        p = chain1->stop;  /* Exit outer loop */
+                        /* If they are within specified distance */
+                        if(DISTSQ(p,q) < DISTCUTOFFSQ)
+                        {
+                           /* Flag the second chain as being near RNA */
+                           ((CHAININFO *)chain2->extras)->type = CHAIN_NEAR;
+                           fprintf(stderr,"Near Chain %s\n", chain2->chain);
+                           /* Break out of the atom searches */
+                           q = chain2->stop;  /* Exit inner loop */
+                           p = chain1->stop;  /* Exit outer loop */
+                        }
                      }
                   }
                }
@@ -334,4 +353,70 @@ int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX)
    }
 
    return(chaintype);
+}
+
+
+void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
+               REAL *ymax, REAL *zmin, REAL *zmax)
+{
+   PDB *p;
+
+   *xmin = *xmax = start->x;
+   *ymin = *ymax = start->y;
+   *zmin = *zmax = start->z;
+
+   for(p=start; p!=stop; NEXT(p))
+   {
+      if(p->x < *xmin)
+      {
+         *xmin = p->x;
+      }
+      else if(p->x > *xmax)
+      {
+         *xmax = p->x;
+      }
+      
+      if(p->y < *ymin)
+      {
+         *ymin = p->y;
+      }
+      else if(p->y > *ymax)
+      {
+         *ymax = p->y;
+      }
+      
+      if(p->z < *zmin)
+      {
+         *zmin = p->z;
+      }
+      else if(p->z > *zmax)
+      {
+         *zmax = p->z;
+      }
+   }
+}
+
+BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
+{
+   if(((((CHAININFO *)chain1->extras)->xmax) + BOXDISTCUTOFF) >
+      (((CHAININFO *)chain2->extras)->xmin))
+      return(TRUE);
+   if(((((CHAININFO *)chain1->extras)->ymax) + BOXDISTCUTOFF) >
+      (((CHAININFO *)chain2->extras)->ymin))
+      return(TRUE);
+   if(((((CHAININFO *)chain1->extras)->zmax) + BOXDISTCUTOFF) >
+      (((CHAININFO *)chain2->extras)->zmin))
+      return(TRUE);
+   
+   if(((((CHAININFO *)chain2->extras)->xmax) + BOXDISTCUTOFF) >
+      (((CHAININFO *)chain1->extras)->xmin))
+      return(TRUE);
+   if(((((CHAININFO *)chain2->extras)->ymax) + BOXDISTCUTOFF) >
+      (((CHAININFO *)chain1->extras)->ymin))
+      return(TRUE);
+   if(((((CHAININFO *)chain2->extras)->zmax) + BOXDISTCUTOFF) >
+      (((CHAININFO *)chain1->extras)->zmin))
+      return(TRUE);
+   
+   return(FALSE);
 }
