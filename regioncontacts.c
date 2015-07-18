@@ -1,14 +1,14 @@
 /*************************************************************************
 
-   Program:    loopcontacts
-   File:       loopcontacts.c
+   Program:    regioncontacts
+   File:       regioncontacts.c
    
-   Version:    V1.1
-   Date:       01.10.96
+   Version:    V1.2
+   Date:       04.11.14
    Function:   Analyse contacts between regions of structure (typically
                loops).
    
-   Copyright:  (c) Dr. Andrew C. R. Martin 1996
+   Copyright:  (c) Dr. Andrew C. R. Martin 2014
    Author:     Dr. Andrew C. R. Martin
    Address:    Biomolecular Structure & Modelling Unit,
                Department of Biochemistry & Molecular Biology,
@@ -16,9 +16,7 @@
                Gower Street,
                London.
                WC1E 6BT.
-   Phone:      (Home) +44 (0)1372 275775
-               (Work) +44 (0)171 419 3890
-   EMail:      INTERNET: martin@biochem.ucl.ac.uk
+   EMail:      andrew@bioinf.org.uk
                
 **************************************************************************
 
@@ -38,22 +36,7 @@
 
    Description:
    ============
-   Calculates loop takeoff angles.
-
-   The algorithm we use is to calculate the CofG of the loop, the midpoint
-   of the N-C-terminal vector and the CofG of the (5) residues on either
-   side of the loop. The midpoint is moved to the origin and the loop
-   is rotated such that the C-terminus is along the +ve x-axis and the
-   framework CofG is on the xy-plane with -ve y.
-
-   Two angles are then provided; one is the in-plane angle which describes
-   how skewed the loop is towards the N- or C-terminus. This angle is
-   +ve for skew towards the C-terminus.
-
-   The other is the out-of-plane angle which describes how the loop
-   flaps up and down with respect to the plane of the adjoining secondary
-   structure. With the N-ter to your left and the C-ter to your right
-   with the loop at the top, if it flops towards you, the angle is +ve.
+   Calculates contacts between regions of structure
 
 **************************************************************************
 
@@ -67,6 +50,10 @@
    V1.0  30.09.96 Original
    V1.1  01.10.96 Added analysis of contacting residues rather than
                   contacting pairs
+   V1.2  14.11.14 Renamed as regioncontacts rather than loopcontacts
+                  Keywords generalized to regions of structure rather 
+                  than loops.
+                  Added option to specify contact cutoff distance
 
 *************************************************************************/
 /* Includes
@@ -88,13 +75,14 @@
 /************************************************************************/
 /* Defines and macros
 */
-#define KEY_LOOP             0
+#define KEY_REGION           0
 #define KEY_QUIT             1
 #define KEY_PDB              2
 #define KEY_CONTACTS         3
 #define KEY_RESIDUES         4
 #define KEY_EXIT             5
-#define PARSER_NCOMM         6
+#define KEY_DISTANCE         6
+#define PARSER_NCOMM         7
 #define PARSER_MAXSTRPARAM   3
 #define PARSER_MAXSTRLEN     80
 #define PARSER_MAXREALPARAM  1
@@ -135,8 +123,8 @@ static MKeyWd sKeyWords[PARSER_NCOMM];         /* Parser keywords       */
 static char   *sStrParam[PARSER_MAXSTRPARAM];  /* Parser string params  */
 static REAL   sRealParam[PARSER_MAXREALPARAM], /* Parser real params    */
               gDistSqMax = DISTMAX * DISTMAX;
-static int     gLoopCount = 0;
-static REGION  *gLoops    = NULL;
+static int     gRegionCount = 0;
+static REGION  *gRegions    = NULL;
 static CONTACT *gContacts = NULL,
                *gTotal    = NULL;
 static RESLIST *gResList  = NULL,
@@ -151,7 +139,7 @@ int main(int argc, char **argv);
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile);
 BOOL SetupParser(void);
 BOOL ProcessInFile(FILE *in, FILE *out);
-BOOL StoreLoop(char *startres, char *endres);
+BOOL StoreRegion(char *startres, char *endres);
 void PatchRegions(PDB *pdb);
 BOOL ProcessFile(FILE *out, char *filename);
 BOOL UpdateResCounts(void);
@@ -172,7 +160,7 @@ BOOL StoreCRes(PDB *p);
 /************************************************************************/
 /*>int main(int argc, char **argv)
    -------------------------------
-   Main program for counting interloop contacts
+   Main program for counting interregion contacts
 
    25.09.96 Original   By: ACRM
 */
@@ -269,6 +257,8 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile)
    Set up the command parser
 
    25.09.96 Original    By: ACRM
+   14.11.14 Changed keyword from LOOP to REGION
+            Added DISTANCE keyword
 */
 BOOL SetupParser(void)
 {
@@ -292,12 +282,13 @@ BOOL SetupParser(void)
    }
    
    /* Set up the keywords                                               */
-   MAKEMKEY(sKeyWords[KEY_LOOP],       "LOOP",       STRING, 2, 2);
+   MAKEMKEY(sKeyWords[KEY_REGION],     "REGION",     STRING, 2, 2);
    MAKEMKEY(sKeyWords[KEY_EXIT],       "EXIT",       NUMBER, 0, 0);
    MAKEMKEY(sKeyWords[KEY_QUIT],       "QUIT",       NUMBER, 0, 0);
    MAKEMKEY(sKeyWords[KEY_PDB],        "PDB",        STRING, 1, 1);
    MAKEMKEY(sKeyWords[KEY_CONTACTS],   "CONTACTS",   NUMBER, 1, 1);
    MAKEMKEY(sKeyWords[KEY_RESIDUES],   "RESIDUES",   NUMBER, 1, 1);
+   MAKEMKEY(sKeyWords[KEY_DISTANCE],   "DISTANCE",   NUMBER, 1, 1);
    
    /* Check all allocations OK                                          */
    for(i=0; i<PARSER_NCOMM; i++)
@@ -330,9 +321,10 @@ BOOL ProcessInFile(FILE *in, FILE *out)
    char buffer[MAXBUFF];
    int  NParams,
         key;
+   BOOL gotPDB = FALSE;
 
 
-   PROMPT(in,"LoopContacts> ");
+   PROMPT(in,"RegionContacts> ");
    
    while(fgets(buffer,MAXBUFF,in))
    {
@@ -357,12 +349,21 @@ BOOL ProcessInFile(FILE *in, FILE *out)
          case PARSE_ERRP:
             fprintf(stderr,"Error in parameters: %s\n",buffer);
             break;
-         case KEY_LOOP:
-            if(!StoreLoop(sStrParam[0], sStrParam[1]))
+         case KEY_REGION:
+            if(!StoreRegion(sStrParam[0], sStrParam[1]))
             {
-               fprintf(stderr,"No memory for loop data!\n");
+               fprintf(stderr,"No memory for region data!\n");
                return(FALSE);
             }
+            break;
+         case KEY_DISTANCE:
+            if(gotPDB)
+            {
+               fprintf(stderr,"You must specify the DISTANCE command \
+before any PDB commands\n");
+               return(FALSE);
+            }
+            gDistSqMax = sRealParam[0] * sRealParam[0];
             break;
          case KEY_CONTACTS:
             fprintf(out,"----------------------------------------------\
@@ -398,6 +399,7 @@ BOOL ProcessInFile(FILE *in, FILE *out)
             return(TRUE);
             break;
          case KEY_PDB:
+            gotPDB = TRUE;
             if(!ProcessFile(out, sStrParam[0]))
             {
                fprintf(stderr,"Error processing PDB file: %s\n",
@@ -408,7 +410,7 @@ BOOL ProcessInFile(FILE *in, FILE *out)
             break;
          }
       }
-      PROMPT(in,"LoopContacts> ");
+      PROMPT(in,"RegionContacts> ");
    }  
 
    return(TRUE);
@@ -416,21 +418,21 @@ BOOL ProcessInFile(FILE *in, FILE *out)
 
 
 /************************************************************************/
-/*>BOOL StoreLoop(char *startres, char *endres)
+/*>BOOL StoreRegion(char *startres, char *endres)
    --------------------------------------------
-   Stores details of a loop specified in the control file
+   Stores details of a region specified in the control file
 
    25.09.96 Original   By: ACRM
 */
-BOOL StoreLoop(char *startres, char *endres)
+BOOL StoreRegion(char *startres, char *endres)
 {
    static REGION *p;
 
    
-   if(gLoops == NULL)
+   if(gRegions == NULL)
    {
-      INIT(gLoops, REGION);
-      p = gLoops;
+      INIT(gRegions, REGION);
+      p = gRegions;
    }
    else
    {
@@ -439,7 +441,7 @@ BOOL StoreLoop(char *startres, char *endres)
 
    if(p==NULL)
    {
-      FREELIST(gLoops, REGION);
+      FREELIST(gRegions, REGION);
       return(FALSE);
    }
    
@@ -453,7 +455,7 @@ BOOL StoreLoop(char *startres, char *endres)
 /************************************************************************/
 /*>void PatchRegions(PDB *pdb)
    ---------------------------
-   Patches the actual PDB pointers into the linked list of loop regions.
+   Patches the actual PDB pointers into the linked list of regions.
 
    25.09.96 Original   By: ACRM
 */
@@ -464,8 +466,8 @@ void PatchRegions(PDB *pdb)
    BOOL   found;
 
    
-   /* Go through each of the loop specifications                        */
-   for(r=gLoops; r!=NULL; NEXT(r))
+   /* Go through each of the region specifications                        */
+   for(r=gRegions; r!=NULL; NEXT(r))
    {
       /* Set the PDB pointers to NULLs                                  */
       r->start = r->end = NULL;
@@ -509,11 +511,11 @@ void PatchRegions(PDB *pdb)
 /************************************************************************/
 /*>BOOL ProcessFile(FILE *out, char *filename)
    -------------------------------------------
-   Process a PDB file. The loop zone specifications must already have
+   Process a PDB file. The region zone specifications must already have
    been given. Opens and reads the specified PDB file. Calls code to
-   patch the PDB pointers into the linked list of loop specifications.
+   patch the PDB pointers into the linked list of region specifications.
    Calls code to update the counts of each residue number found within
-   the loop regions then does the contact analysis and frees the PDB
+   the regions then does the contact analysis and frees the PDB
    linked list.
 
    25.09.96 Original   By: ACRM
@@ -540,9 +542,9 @@ BOOL ProcessFile(FILE *out, char *filename)
    }
    fclose(fp);
 
-   gLoopCount++;
+   gRegionCount++;
 
-   /* Patch the PDB pointers into the linked list of loops              */
+   /* Patch the PDB pointers into the linked list of regions              */
    PatchRegions(pdb);
    
    /* Update the counts for each residue number so we can calculate
@@ -565,7 +567,7 @@ BOOL ProcessFile(FILE *out, char *filename)
 /*>BOOL UpdateResCounts(void)
    --------------------------
    Maintains a linked list of counts of each residue number observed in
-   the loop zones. This is used to calculate percentages for those 
+   the region zones. This is used to calculate percentages for those 
    residues involved in contacts.
 
    30.09.96 Original   By: ACRM
@@ -580,7 +582,7 @@ BOOL UpdateResCounts(void)
    
    
    /* For each region                                                   */
-   for(r=gLoops; r!=NULL; NEXT(r))
+   for(r=gRegions; r!=NULL; NEXT(r))
    {
       /* For each atom in the region                                    */
       for(p=r->start; p!=NULL && p!=r->end; p=FindNextResidue(p))
@@ -624,7 +626,7 @@ BOOL UpdateResCounts(void)
 /************************************************************************/
 /*>BOOL DoContactAnalysis(FILE *out)
    ---------------------------------
-   Does the actual contact analysis. Runs through the loop zones and the
+   Does the actual contact analysis. Runs through the region zones and the
    atoms within these zones. If any pair of atoms is in contact, the
    residue pair is added to the contact list. Finally the contacts
    seen in the current PDB file are displayed and the records of total
@@ -641,7 +643,7 @@ BOOL DoContactAnalysis(FILE *out)
    ClearContacts();
    
    /* For each region                                                   */
-   for(r1=gLoops; r1!=NULL; NEXT(r1))
+   for(r1=gRegions; r1!=NULL; NEXT(r1))
    {
       /* For each other region                                          */
       for(r2=r1->next; r2!=NULL; NEXT(r2))
@@ -1048,15 +1050,16 @@ char *PDBResSpec(PDB *p)
    Prints a usage message.
 
    30.09.96 Original   By: ACRM
+   14.11.14 Updated for V1.2
 */
 void Usage(void)
 {
-   fprintf(stderr,"\nLoopContacts V1.0 (c) 1996, Dr. Andrew C.R. Martin, \
-UCL\n");
-   fprintf(stderr,"Usage: loopcontacts [controlfile [outputfile]]\n");
+   fprintf(stderr,"\nregioncontacts V1.2 (c) 1996-2014, Dr. Andrew C.R. \
+Martin, UCL\n");
+   fprintf(stderr,"Usage: regioncontacts [controlfile [outputfile]]\n");
 
-   fprintf(stderr,"\nLoopContacts examines contacts between residues in \
-a set of loops in\n");
+   fprintf(stderr,"\nregioncontacts examines contacts between residues in \
+a set of regions in\n");
    fprintf(stderr,"one or more proteins. If more than one protein is \
 analysed, summary\n");
    fprintf(stderr,"data showing the fraction of times a particular \
@@ -1075,9 +1078,13 @@ fraction would\n");
 
    fprintf(stderr,"\nThe program is run from a control file which has \
 the following commands:\n");
-   fprintf(stderr,"LOOP res1 res2        Specifies the range of a loop. \
+   fprintf(stderr,"REGION res1 res2      Specifies the range of a region. \
 Repeated for\n");
-   fprintf(stderr,"                      each loop to be examined.\n");
+   fprintf(stderr,"                      each region to be examined.\n");
+   fprintf(stderr,"DISTANCE dist         Use specified distance to \
+define a\n");
+   fprintf(stderr,"                      contact [Default: %.2f]\n",
+      DISTMAX);
    fprintf(stderr,"PDB filename          Specifies a PDB file to be \
 analysed.\n");
    fprintf(stderr,"CONTACTS cutoff       Displays contacts which occur \
