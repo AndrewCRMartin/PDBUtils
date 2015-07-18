@@ -3,8 +3,8 @@
    Program:    cdrcontacts
    File:       cdrcontacts.c
    
-   Version:    V1.0
-   Date:       16.11.14
+   Version:    V1.1
+   Date:       03.12.14
    Function:   Find contacts between CDRs and framework
    
    Copyright:  (c) UCL / Dr. Andrew C. R. Martin 2014
@@ -46,6 +46,8 @@
 
    Revision History:
    =================
+   V1.0   16.11.14  Original   By: ACRM
+   V1.1   03.12.14  Output now includes residue names
 
 *************************************************************************/
 /* Includes
@@ -62,7 +64,7 @@
 #define MAXLABEL      16
 #define MAXBUFF       400
 #define DEF_DISTCUT   (REAL)4.0
-#define MAXBONDDISTSQ (REAL)4.0
+#define MAXBONDDISTSQ (REAL)5.29  /* i.e. 2.3A (Nx...O(x-1))            */
 
 typedef struct _zone
 {
@@ -83,11 +85,12 @@ typedef struct _zone
 int main(int argc, char **argv);
 void RunAnalysis(FILE *out, PDB *pdb, ZONE *cdrs, REAL dist);
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
-                  REAL *dist);
+                  REAL *dist, BOOL *doResList);
 void Usage(void);
 BOOL InCDR(PDB *p, ZONE *cdrs, char *theCDR);
 REAL MakesContact(PDB *res1, PDB *res2, REAL distSq);
 BOOL InPDBZoneSpec(PDB *p, char *start, char *stop);
+void PrintResList(FILE *out, PDB *pdb);
 
 
 /************************************************************************/
@@ -106,10 +109,10 @@ int main(int argc, char **argv)
    char infile[MAXBUFF],
         outfile[MAXBUFF];
    REAL dist = DEF_DISTCUT;
-   
+   BOOL doResList = FALSE;
    
 
-   if(ParseCmdLine(argc, argv, infile, outfile, &dist))
+   if(ParseCmdLine(argc, argv, infile, outfile, &dist, &doResList))
    {
       if(blOpenStdFiles(infile, outfile, &in, &out))
       {
@@ -119,6 +122,8 @@ int main(int argc, char **argv)
          if((pdb=blReadPDBAtoms(in, &natoms))!=NULL)
          {
             RunAnalysis(out, pdb, cdrs, dist);
+            if(doResList)
+               PrintResList(out, pdb);
             FREELIST(pdb, PDB);
          }
       }
@@ -138,6 +143,29 @@ int main(int argc, char **argv)
 
 
 /************************************************************************/
+/*>void PrintResList(FILE *out, PDB *pdb)
+   --------------------------------------
+   04.12.14 Original   By: ACRM
+*/
+void PrintResList(FILE *out, PDB *pdb)
+{
+   PDB *p;
+   
+   fprintf(out, "\n\nRESLIST\n");
+   for(p=pdb; p!=NULL; p=blFindNextResidue(p))
+   {
+      fprintf(out, "%s%d%s %s\n",
+              p->chain, p->resnum, p->insert, p->resnam);
+   }
+}
+
+
+/************************************************************************/
+/*>void RunAnalysis(FILE *out, PDB *pdb, ZONE *cdrs, REAL dist)
+   ------------------------------------------------------------
+   16.11.14   Original   By: ACRM
+   03.12.14   Added output or amino acid type
+*/
 void RunAnalysis(FILE *out, PDB *pdb, ZONE *cdrs, REAL dist)
 {
    PDB *p        = NULL,
@@ -159,10 +187,10 @@ void RunAnalysis(FILE *out, PDB *pdb, ZONE *cdrs, REAL dist)
             {
                if((theDist=MakesContact(p, q, distSq)) >= (REAL)0.0)
                {
-                  fprintf(out, "%s %s%d%s contacts %s%d%s : %.2f\n",
+                  fprintf(out, "%s %s%d%s %s contacts %s%d%s %s : %.2f\n",
                           theCDR, 
-                          p->chain, p->resnum, p->insert,
-                          q->chain, q->resnum, q->insert,
+                          p->chain, p->resnum, p->insert, p->resnam,
+                          q->chain, q->resnum, q->insert, q->resnam,
                           theDist);
                }
             }
@@ -175,6 +203,10 @@ void RunAnalysis(FILE *out, PDB *pdb, ZONE *cdrs, REAL dist)
 
 
 /************************************************************************/
+/*>REAL MakesContact(PDB *res1, PDB *res2, REAL distSq)
+   ----------------------------------------------------
+   16.11.14   Original   By: ACRM
+*/
 REAL MakesContact(PDB *res1, PDB *res2, REAL distSq)
 {
    PDB *nextPRes = NULL,
@@ -208,6 +240,11 @@ REAL MakesContact(PDB *res1, PDB *res2, REAL distSq)
 
 
 /************************************************************************/
+/*>BOOL InCDR(PDB *p, ZONE *cdrs, char *theCDR)
+   --------------------------------------------
+   16.11.14   Original   By: ACRM
+   03.12.14   Sets theCDR
+*/
 BOOL InCDR(PDB *p, ZONE *cdrs, char *theCDR)
 {
    int i;
@@ -215,6 +252,8 @@ BOOL InCDR(PDB *p, ZONE *cdrs, char *theCDR)
    {
       if(InPDBZoneSpec(p, cdrs[i].start, cdrs[i].stop))
       {
+         if(theCDR != NULL)
+            strncpy(theCDR, cdrs[i].cdr, MAXLABEL);
          return(TRUE);
       }
    }
@@ -223,6 +262,10 @@ BOOL InCDR(PDB *p, ZONE *cdrs, char *theCDR)
 
 
 /************************************************************************/
+/*>BOOL InPDBZoneSpec(PDB *p, char *start, char *stop)
+   ---------------------------------------------------
+   16.11.14   Original   By: ACRM
+*/
 BOOL InPDBZoneSpec(PDB *p, char *start, char *stop)
 {
    int  startResnum,    stopResnum;
@@ -239,17 +282,11 @@ BOOL InPDBZoneSpec(PDB *p, char *start, char *stop)
 
 
 /************************************************************************/
-/*>BOOL ParseCmdLine(int argc, char **argv, char *Zone1, char *Zone2,
-                     char *infile, char *outfile, BOOL *uppercaseresspec)
-   ----------------------------------------------------------------------
+/*>BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
+                  REAL *dist, BOOL *doResList)
+   ---------------------------------------------------------------------
    Input:   int    argc         Argument count
             char   **argv       Argument array
-   Output:  char   *Zone1       First end of zone
-            char   *Zone2       Second end of zone
-            char   *infile      Input file (or blank string)
-            char   *outfile     Output file (or blank string)
-            BOOL   *uppercaseresspec  Should residue spec be upcased?
-                                (Default: yes)
    Returns: BOOL                Success?
 
    Parse the command line
@@ -258,9 +295,10 @@ BOOL InPDBZoneSpec(PDB *p, char *start, char *stop)
    29.09.05 Added uppercaseresspec param and handling of -l  By: TL
    05.11.07 Added first check that at least one parameter is on the
             command line
+   04.12.14 Added doResList
 */
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
-                  REAL *dist)
+                  REAL *dist, BOOL *doResList)
 {
    argc--;
    argv++;
@@ -276,6 +314,9 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
          {
          case 'h':
             return(FALSE);
+            break;
+         case 'r':
+            *doResList = TRUE;
             break;
          case 'd':
             argc--;
@@ -316,14 +357,20 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
 
 
 /************************************************************************/
+/*>void Usage(void)
+   ----------------
+   16.11.14   Original   By: ACRM
+*/
 void Usage(void)
 {
    fprintf(stderr,"\n");
-   fprintf(stderr,"cdrcontacts V1.0 (c) 2014, Dr. Andrew C.R. Martin\n");
+   fprintf(stderr,"cdrcontacts V1.1 (c) 2014, Dr. Andrew C.R. Martin\n");
 
-   fprintf(stderr,"\nUsage: cdrcontacts [-d dist] [in.pdb [outfile]]\n");
+   fprintf(stderr,"\nUsage: cdrcontacts [-d dist] [-r] [in.pdb \
+[outfile]]\n");
    fprintf(stderr,"       -d  Specify contact distance [Default: %.2f]\n",
            DEF_DISTCUT);
+   fprintf(stderr,"       -r  Output the complete residue list too\n");
 
    fprintf(stderr,"\nFind contacts between CDRs and framework in an \
 antibody\n\n");
