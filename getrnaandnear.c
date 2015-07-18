@@ -1,11 +1,12 @@
 /*************************************************************************
 
-   Program:    
-   File:       
+   Program:    getrnaandnear
+   File:       getrnaandnear.c
    
-   Version:    
-   Date:       
-   Function:   
+   Version:    V1.0
+   Date:       03.03.10
+   Function:   Get RNA chains and protein (or HETATM chains that interact
+               with them out of a PDB file)
    
    Copyright:  (c) UCL / Dr. Andrew C. R. Martin 2010
    Author:     Dr. Andrew C. R. Martin
