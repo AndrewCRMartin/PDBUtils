@@ -60,7 +60,7 @@
 /************************************************************************/
 /* Defines and macros
 */
-
+/* Protein chain types                                                  */
 #define TYPE_UNDEF   0
 #define TYPE_RNA     1
 #define TYPE_DNA     2
@@ -69,13 +69,16 @@
 #define TYPE_PEPTIDE 5
 #define TYPE_NONSTD  6
 
+/* Flags to indicate whether we will be keeping a chain                 */
 #define CHAIN_NULL   0
 #define CHAIN_RNA    1
 #define CHAIN_NEAR   2
 
+/* Distance cutoffs                                                     */
 #define BOXDISTCUTOFF 8
 #define DISTCUTOFFSQ 64   /* 8A cutoff */
 
+/* Extra chain info                                                     */
 typedef struct
 {
    int type;
@@ -95,7 +98,9 @@ int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX);
 BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2);
 void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
                REAL *ymax, REAL *zmin, REAL *zmax);
-
+void AssignChainTypes(PDBSTRUCT *pdbs);
+void FindChainsNearRNA(PDBSTRUCT *pdbs);
+void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs);
 
 
 /************************************************************************/
@@ -107,7 +112,7 @@ int main(int argc, char **argv)
    PDBSTRUCT *pdbstruct;
    int  natoms;
    
-   
+   /* Open files                                                        */
    if((in=fopen(argv[1], "r"))==NULL)
    {
       fprintf(stderr, "Can't read file %s\n", argv[0]);
@@ -118,117 +123,34 @@ int main(int argc, char **argv)
       fprintf(stderr, "Can't write file %s\n", argv[1]);
       return(1);
    }
-   
+
+   /* Read and format data                                              */
    if((pdb = ReadPDB(in, &natoms)) == NULL)
    {
       fprintf(stderr, "No atoms read from file %s\n", argv[0]);
       return(1);
    }
-   
    if((pdbstruct = AllocPDBStructure(pdb)) == NULL)
    {
       fprintf(stderr, "No memory for PDB structure\n");
    }
-      
+
+   /* Process the data to find and print chains of interest             */
    ProcessPDB(out, pdbstruct);
+
+   /* Clean up                                                          */
    FreePDBStructure(pdbstruct);
    FREELIST(pdb, PDB);
 
    return(0);
 }
 
+/************************************************************************/
 void ProcessPDB(FILE *out, PDBSTRUCT *pdbs)
 {
-   PDBCHAIN  *chain, *chain1, *chain2;
-   PDB       *p, *q;
-   int       chaintype;
-   
-   /* Assign a type to each chain */
-   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
-   {
-      chaintype = FindChainType(chain->start, 
-                                ((chain->next)?chain->next->start:NULL),
-                                FALSE, FALSE);
-      if((chain->extras = (APTR *)malloc(sizeof(CHAININFO)))==NULL)
-      {
-         fprintf(stderr, "No memory for CHAININFO structure\n");
-         exit(1);
-      }
-
-      if(chaintype == TYPE_RNA)
-      {
-         ((CHAININFO *)chain->extras)->type = CHAIN_RNA;
-         fprintf(stderr,"RNA Chain %s\n", chain->chain);
-      }
-      else
-      {
-         ((CHAININFO *)chain->extras)->type = CHAIN_NULL;
-      }
-
-      SetBounds(chain->start, chain->stop, 
-                &(((CHAININFO *)chain->extras)->xmin),
-                &(((CHAININFO *)chain->extras)->xmax),
-                &(((CHAININFO *)chain->extras)->ymin),
-                &(((CHAININFO *)chain->extras)->ymax),
-                &(((CHAININFO *)chain->extras)->zmin),
-                &(((CHAININFO *)chain->extras)->zmax));
-   }
-
-   /*** Look for chains which are near to RNA chains ***/
-
-   /* Run through each chain */
-   for(chain1=pdbs->chains; chain1!=NULL; NEXT(chain1))
-   {
-      /* If it's RNA */
-      if(((CHAININFO *)chain1->extras)->type == CHAIN_RNA)
-      {
-         /* Run through all other chains */
-         for(chain2=pdbs->chains; chain2!=NULL; NEXT(chain2))
-         {
-            /* If it's not RNA and not already flagged as near to RNA */
-            if((((CHAININFO *)chain2->extras)->type != CHAIN_RNA) &&
-               (((CHAININFO *)chain2->extras)->type != CHAIN_NEAR))
-            {
-               /* If the bounding boxes are the chains are close enough */
-               if(CheckBounds(chain1, chain2))
-               {
-                  /* Run through atoms in first chain */
-                  for(p=chain1->start; p!=chain1->stop; NEXT(p))
-                  {
-                     /* Run through atoms in second chain */
-                     for(q=chain2->start; q!=chain2->stop; NEXT(q))
-                     {
-                        /* If they are within specified distance */
-                        if(DISTSQ(p,q) < DISTCUTOFFSQ)
-                        {
-                           /* Flag the second chain as being near RNA */
-                           ((CHAININFO *)chain2->extras)->type = CHAIN_NEAR;
-                           fprintf(stderr,"Near Chain %s\n", chain2->chain);
-                           /* Break out of the atom searches */
-                           q = chain2->stop;  /* Exit inner loop */
-                           p = chain1->stop;  /* Exit outer loop */
-                        }
-                     }
-                  }
-               }
-            }
-         }
-      }
-   }
-
-   /* Run through the chains */
-   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
-   {
-      /* If it's flagged as RNA or near to RNA, then print the records */
-      if((((CHAININFO *)chain->extras)->type == CHAIN_RNA) ||
-         (((CHAININFO *)chain->extras)->type == CHAIN_NEAR))
-      {
-         for(p=chain->start; p!=chain->stop; NEXT(p))
-         {
-            WritePDBRecord(out, p);
-         }
-      }
-   }
+   AssignChainTypes(pdbs);
+   FindChainsNearRNA(pdbs);
+   PrintRNANearChains(out, pdbs);
 }
 
 /************************************************************************/
@@ -356,6 +278,7 @@ int FindChainType(PDB *start, PDB *stop, BOOL doPep, BOOL doX)
 }
 
 
+/************************************************************************/
 void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
                REAL *ymax, REAL *zmin, REAL *zmax)
 {
@@ -396,6 +319,7 @@ void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
    }
 }
 
+/************************************************************************/
 BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
 {
    if(((((CHAININFO *)chain1->extras)->xmax) + BOXDISTCUTOFF) >
@@ -420,3 +344,116 @@ BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
    
    return(FALSE);
 }
+
+
+void AssignChainTypes(PDBSTRUCT *pdbs)
+{
+   PDBCHAIN  *chain;
+   int       chaintype;
+
+   /* Assign a type to each chain                                       */
+   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
+   {
+      chaintype = FindChainType(chain->start, 
+                                ((chain->next)?chain->next->start:NULL),
+                                FALSE, FALSE);
+      if((chain->extras = (APTR *)malloc(sizeof(CHAININFO)))==NULL)
+      {
+         fprintf(stderr, "No memory for CHAININFO structure\n");
+         exit(1);
+      }
+
+      if(chaintype == TYPE_RNA)
+      {
+         ((CHAININFO *)chain->extras)->type = CHAIN_RNA;
+         fprintf(stderr,"RNA Chain %s\n", chain->chain);
+      }
+      else
+      {
+         ((CHAININFO *)chain->extras)->type = CHAIN_NULL;
+      }
+
+      /* Identify the chain boundaries                                  */
+      SetBounds(chain->start, chain->stop, 
+                &(((CHAININFO *)chain->extras)->xmin),
+                &(((CHAININFO *)chain->extras)->xmax),
+                &(((CHAININFO *)chain->extras)->ymin),
+                &(((CHAININFO *)chain->extras)->ymax),
+                &(((CHAININFO *)chain->extras)->zmin),
+                &(((CHAININFO *)chain->extras)->zmax));
+   }
+}
+
+
+/************************************************************************/
+/*** Look for chains which are near to RNA chains ***/
+void FindChainsNearRNA(PDBSTRUCT *pdbs)
+{
+   PDBCHAIN  *chain1, *chain2;
+   PDB       *p, *q;
+      
+   /* Run through each chain                                            */
+   for(chain1=pdbs->chains; chain1!=NULL; NEXT(chain1))
+   {
+      /* If it's RNA                                                    */
+      if(((CHAININFO *)chain1->extras)->type == CHAIN_RNA)
+      {
+         /* Run through all other chains                                */
+         for(chain2=pdbs->chains; chain2!=NULL; NEXT(chain2))
+         {
+            /* If it's not RNA and not already flagged as near to RNA   */
+            if((((CHAININFO *)chain2->extras)->type != CHAIN_RNA) &&
+               (((CHAININFO *)chain2->extras)->type != CHAIN_NEAR))
+            {
+               /* If the bounding boxes of the chains are close enough  */
+               if(CheckBounds(chain1, chain2))
+               {
+                  /* Run through atoms in first chain                   */
+                  for(p=chain1->start; p!=chain1->stop; NEXT(p))
+                  {
+                     /* Run through atoms in second chain               */
+                     for(q=chain2->start; q!=chain2->stop; NEXT(q))
+                     {
+                        /* If they are within specified distance        */
+                        if(DISTSQ(p,q) < DISTCUTOFFSQ)
+                        {
+                           /* Flag the second chain as being near RNA   */
+                           ((CHAININFO *)chain2->extras)->type = 
+                              CHAIN_NEAR;
+                           fprintf(stderr,"Near Chain %s\n", 
+                                   chain2->chain);
+                           /* Break out of the atom searches            */
+                           q = chain2->stop;  /* Exit inner loop        */
+                           p = chain1->stop;  /* Exit outer loop        */
+                        }
+                     }  /* for() atoms in second chain                  */
+                  }  /* for() atoms in first chain                      */
+               }  /* if boxes are close enough                          */
+            }  /* if second chain not already RNA or NEAR               */
+         }  /* for() each second chain                                  */
+      }  /* if first chain is RNA                                       */
+   }  /* for() each first chain                                         */
+}
+
+
+/************************************************************************/
+void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs)
+{
+   PDBCHAIN *chain;
+   PDB      *p;
+
+   /* Run through the chains                                            */
+   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
+   {
+      /* If it's flagged as RNA or near to RNA, then print the records  */
+      if((((CHAININFO *)chain->extras)->type == CHAIN_RNA) ||
+         (((CHAININFO *)chain->extras)->type == CHAIN_NEAR))
+      {
+         for(p=chain->start; p!=chain->stop; NEXT(p))
+         {
+            WritePDBRecord(out, p);
+         }
+      }
+   }
+}
+
