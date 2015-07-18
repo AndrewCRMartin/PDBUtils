@@ -3,7 +3,7 @@
    Program:    findcore_Apr16
    File:       findcore_Apr16.c
    
-   Version:    V1.6
+   Version:    V1.7
    Date:       16.04.02
    Function:   Find core from multiple structures  given the CORA alignment
                file as a staring point
@@ -36,9 +36,9 @@
 
 **************************************************************************
 
-   Description: Finds the core of proteins multiply aligned using the CORA 
-   ============ program.
-            
+   Description: 
+   ============
+   Finds the core of proteins multiply aligned using the CORA program.
 
 **************************************************************************
 
@@ -150,8 +150,9 @@ void WriteTextOutput(ZONE *zones, int *numProts);
 void Usage(void);
 BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
            ZONE *zones, REAL cutsq);
-ZONE *MergeZones(ZONE *zones);
+ZONE *MergeZones(ZONE *zones, int numProts);
 BOOL SubsetZone(ZONE *z, ZONE *zones);
+
 /************************************************************************/
 int main(int argc, char **argv)
 {
@@ -228,7 +229,7 @@ file: %s\n",maln_ptr->proname[numPdb]);
       /* Now remove any zones which are subsets of other zones and merge
          overlapping zones
       */
-      zones = MergeZones(zones);
+      zones = MergeZones(zones, numProts);
       /* Finally write the output file which lists residues in the 
          structural core and optionally write PDB files with the cores
          flagged
@@ -1586,8 +1587,8 @@ the columns appear\n");
 
 
 /************************************************************************/
-/*>ZONE *MergeZones(ZONE *zones)
-   -----------------------------
+/*>ZONE *MergeZones(ZONE *zones, int numProts)
+   -------------------------------------------
    Merges zones in the zone linked list of they overlap and removes zones
    which are subsets of other zones
 
@@ -1596,11 +1597,16 @@ the columns appear\n");
    13.03.97 Added merging of abutting zones (required since change to
             zone creation where residues not added to a zone if they
             are already in another zone stops them from being subsets)
+   26.06.02 Generalized for multiple structures
+            Fixed bug in deleting zones
 */
-ZONE *MergeZones(ZONE *zones)
+ZONE *MergeZones(ZONE *zones, int numProts)
 {
-   ZONE *z;
-   BOOL finished = FALSE;
+   ZONE *z, *zt;
+   BOOL finished = FALSE,
+        doit;
+   int  i;
+   
 
    /* Remove null zones                                                 */
    while(zones->start[0] < -9998)
@@ -1626,15 +1632,40 @@ ZONE *MergeZones(ZONE *zones)
       finished = TRUE;
       for(z=zones; z->next!=NULL; NEXT(z))
       {
-         if((z->end[0] >= z->next->start[0]) ||
-            (z->end[1] >= z->next->start[1]))
+         /* For each structure, see if the end of a zone overlaps the 
+            start of a following zone
+         */
+         for(i=0, doit=FALSE; i<numProts; i++)
          {
-            if((z->end[0] != z->next->end[0]) &&
-               (z->end[1] != z->next->end[1]))
+            if(z->end[i] >= z->next->start[i])
+            {
+               doit = TRUE;
+               break;
+            }
+         }
+         
+         if(doit)  /* There was a zone overlap                          */
+         {
+            /* For each structure, check that the end of the zone doesn't
+               already equal the end of the following zone. If there
+               weren't any such cases, then we will merge zones.
+            */
+            for(i=0, doit=TRUE; i<numProts; i++)
+            {
+               if(z->end[i] == z->next->end[i])
+               {
+                  doit = FALSE;
+                  break;
+               }
+            }
+            
+            if(doit) /* The zone didn't already span the following zone */
             {
                finished = FALSE;
-               z->end[0] = z->next->end[0];
-               z->end[1] = z->next->end[1];
+               for(i=0; i<numProts; i++)
+               {
+                  z->end[i] = z->next->end[i];
+               }
             }
          }
       }
@@ -1647,7 +1678,7 @@ ZONE *MergeZones(ZONE *zones)
       finished = TRUE;
       for(z=zones; z!=NULL; NEXT(z))
       {
-	if(SubsetZone(z, zones))
+         if(SubsetZone(z, zones))
          {
             if(z==zones)
             {
@@ -1660,10 +1691,13 @@ ZONE *MergeZones(ZONE *zones)
                if(z->next != NULL)
                   z->next->prev = z->prev;
             }
+            zt=z->prev;
             free(z);
+            z=zt;
+            
             finished = FALSE;
             break;
-	    }
+         }
       }
    }
 
@@ -1674,13 +1708,26 @@ ZONE *MergeZones(ZONE *zones)
       finished = TRUE;
       for(z=zones; z->next!=NULL; NEXT(z))
       {
-         /* If these two zones are both abutting                        */
-         if((z->end[0]+1 == z->next->start[0]) &&
-            (z->end[1]+1 == z->next->start[1]))
+         /* See if this zone abutts the next zone. Assume that it does,
+            then check through each structure to see if there is a 
+            mismatch
+         */
+         for(i=0, doit=TRUE; i<numProts; i++)
+         {
+            if(z->end[i]+1 != z->next->start[i])
+            {
+               doit = FALSE;
+               break;
+            }
+         }
+         
+         if(doit) /* If the zones were abutting                         */
          {
             /* Reset start of second zone to start of first zone        */
-            z->next->start[0] = z->start[0];
-            z->next->start[1] = z->start[1];
+            for(i=0; i<numProts; i++)
+            {
+               z->next->start[i] = z->start[i];
+            }
             
             /* Remove z from the linked list                            */
             if(z==zones)
@@ -1690,11 +1737,13 @@ ZONE *MergeZones(ZONE *zones)
             }
             else
             {
-               z->prev->next = z->next;
+               if(z->prev != NULL) z->prev->next = z->next;
                if(z->next != NULL)
                   z->next->prev = z->prev;
             }
+            zt=z->prev;
             free(z);
+            z=zt;
 
             finished = FALSE;
          }
