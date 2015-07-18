@@ -363,27 +363,27 @@ void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
 */
 BOOL CheckBounds(PDBCHAIN *chain1, PDBCHAIN *chain2)
 {
-   if(((((CHAININFO *)chain1->extras)->xmax) + DISTCUTOFF) >
+   if(((((CHAININFO *)chain1->extras)->xmax) + DISTCUTOFF) <
       (((CHAININFO *)chain2->extras)->xmin))
-      return(TRUE);
-   if(((((CHAININFO *)chain1->extras)->ymax) + DISTCUTOFF) >
+      return(FALSE);
+   if(((((CHAININFO *)chain1->extras)->ymax) + DISTCUTOFF) <
       (((CHAININFO *)chain2->extras)->ymin))
-      return(TRUE);
-   if(((((CHAININFO *)chain1->extras)->zmax) + DISTCUTOFF) >
+      return(FALSE);
+   if(((((CHAININFO *)chain1->extras)->zmax) + DISTCUTOFF) <
       (((CHAININFO *)chain2->extras)->zmin))
-      return(TRUE);
+      return(FALSE);
    
-   if(((((CHAININFO *)chain2->extras)->xmax) + DISTCUTOFF) >
+   if(((((CHAININFO *)chain2->extras)->xmax) + DISTCUTOFF) <
       (((CHAININFO *)chain1->extras)->xmin))
-      return(TRUE);
-   if(((((CHAININFO *)chain2->extras)->ymax) + DISTCUTOFF) >
+      return(FALSE);
+   if(((((CHAININFO *)chain2->extras)->ymax) + DISTCUTOFF) <
       (((CHAININFO *)chain1->extras)->ymin))
-      return(TRUE);
-   if(((((CHAININFO *)chain2->extras)->zmax) + DISTCUTOFF) >
+      return(FALSE);
+   if(((((CHAININFO *)chain2->extras)->zmax) + DISTCUTOFF) <
       (((CHAININFO *)chain1->extras)->zmin))
-      return(TRUE);
+      return(FALSE);
    
-   return(FALSE);
+   return(TRUE);
 }
 
 
