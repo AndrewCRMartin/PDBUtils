@@ -3,8 +3,8 @@
    Program:    getrnaandnear
    File:       getrnaandnear.c
    
-   Version:    V1.0
-   Date:       03.03.10
+   Version:    V1.1
+   Date:       05.03.10
    Function:   Get RNA chains and protein (or HETATM chains that interact
                with them out of a PDB file)
    
@@ -47,6 +47,8 @@
 
    Revision History:
    =================
+   V1.0  03.03.10  Original
+   V1.1  05.03.10  Added residue level stuff
 
 *************************************************************************/
 /* Includes
@@ -103,9 +105,12 @@ void SetBounds(PDB *start, PDB *stop, REAL *xmin, REAL *xmax, REAL *ymin,
                REAL *ymax, REAL *zmin, REAL *zmax);
 void AssignChainTypes(PDBSTRUCT *pdbs);
 void FindChainsNearRNA(PDBSTRUCT *pdbs);
-void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs);
-BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile);
+void FindResiduesNearRNA(PDBSTRUCT *pdbs);
+void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs, BOOL resLevel);
+BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
+                  BOOL *resLevel);
 void Usage(void);
+void ClearResidueFlags(PDBSTRUCT *pdbs);
 
 
 /************************************************************************/
@@ -124,9 +129,10 @@ int main(int argc, char **argv)
    int  natoms;
    char infile[MAXBUFF],
         outfile[MAXBUFF];
+   BOOL resLevel = FALSE;
    
 
-   if(!ParseCmdLine(argc, argv, infile, outfile))
+   if(!ParseCmdLine(argc, argv, infile, outfile, &resLevel))
    {
       Usage();
       return(0);
@@ -152,8 +158,16 @@ int main(int argc, char **argv)
 
    /* Process the data to find and print chains of interest             */
    AssignChainTypes(pdbstruct);
-   FindChainsNearRNA(pdbstruct);
-   PrintRNANearChains(out, pdbstruct);
+   if(resLevel)
+   {
+      ClearResidueFlags(pdbstruct);
+      FindResiduesNearRNA(pdbstruct);
+   }
+   else
+   {
+      FindChainsNearRNA(pdbstruct);
+   }
+   PrintRNANearChains(out, pdbstruct, resLevel);
 
    /* Clean up                                                          */
    FreePDBStructure(pdbstruct);
@@ -493,54 +507,96 @@ breakout:         continue;
 
 
 /************************************************************************/
-/*>void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs)
-   ---------------------------------------------------
+/*>void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs, BOOL resLevel)
+   ------------------------------------------------------------------
    Print the RNA chains and the other chains which have been identified
    as being near to RNA chains
 
    03.03.10  Original   By: ACRM
+   05.03.10  Added resLevel
 */
-void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs)
+void PrintRNANearChains(FILE *out, PDBSTRUCT *pdbs, BOOL resLevel)
 {
-   PDBCHAIN *chain;
-   PDB      *p;
+   PDBRESIDUE *r;
+   PDBCHAIN   *chain;
+   PDB        *p;
 
-   /* Run through the chains                                            */
-   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
+   if(resLevel)
    {
-      /* If it's flagged as RNA or near to RNA, then print the records  */
-      if((((CHAININFO *)chain->extras)->type == CHAIN_RNA) ||
-         (((CHAININFO *)chain->extras)->type == CHAIN_NEAR))
+      /* Run through the chains                                         */
+      for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
       {
-         for(p=chain->start; p!=chain->stop; NEXT(p))
+         /* If it's flagged as RNA, then print the whole chain
+         */
+         if(((CHAININFO *)chain->extras)->type == CHAIN_RNA)
          {
-            WritePDBRecord(out, p);
+            for(p=chain->start; p!=chain->stop; NEXT(p))
+            {
+               WritePDBRecord(out, p);
+            }
+         }
+         else
+         {
+            /* Work through the residues in this chain to see if they
+               are flagged as near-RNA
+            */
+            for(r=chain->residues; r!=NULL; NEXT(r))
+            {
+               if(r->extras)
+               {
+                  for(p=r->start; p!=r->stop; NEXT(p))
+                  {
+                     WritePDBRecord(out, p);
+                  }
+               }
+            }
+         }
+      }
+   }
+   else
+   {
+      /* Run through the chains                                         */
+      for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
+      {
+         /* If it's flagged as RNA or near to RNA, then print 
+            the records  
+         */
+         if((((CHAININFO *)chain->extras)->type == CHAIN_RNA) ||
+            (((CHAININFO *)chain->extras)->type == CHAIN_NEAR))
+         {
+            for(p=chain->start; p!=chain->stop; NEXT(p))
+            {
+               WritePDBRecord(out, p);
+            }
          }
       }
    }
 }
 
 /************************************************************************/
-/*>BOOL ParseCmdLine(int argc, char **argv, char *ssfile, char *pdbfile, 
-                     char *infile, char *outfile, char *chain, 
-                     BOOL *verbose, int *flex)
+/*>BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
+                     BOOL *resLevel)
    ----------------------------------------------------------------------
-   Input:   int   argc     Command line argc
-            char  **argv   Command line argv
-   Output:  char  *infile  Input PDB filename (or blank string)
-            char  *outfile Output PDB filename (or blank string)
-   Returns: BOOL           Success
+   Input:   int   argc      Command line argc
+            char  **argv    Command line argv
+   Output:  char  *infile   Input PDB filename (or blank string)
+            char  *outfile  Output PDB filename (or blank string)
+            BOOL  *resLevel Do residue level nearness
+   Returns: BOOL            Success
 
    Parse the command line
 
    03.03.10  Original   By: ACRM
+   05.03.10  Added -r / resLevel
 */
-BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile)
+BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
+                  BOOL *resLevel)
 {
    argc--;
    argv++;
 
    infile[0] = outfile[0] = '\0';
+   *resLevel = FALSE;
    
    while(argc)
    {
@@ -548,6 +604,9 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile)
       {
          switch(argv[0][1])
          {
+         case 'r':
+            *resLevel = TRUE;
+            break;
          case 'h':
             return(FALSE);
             break;
@@ -597,10 +656,11 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile)
 */
 void Usage(void)
 {
-   fprintf(stderr,"\ngetrnaandnear V1.0 (C) Dr. Andrew C.R Martin, \
+   fprintf(stderr,"\ngetrnaandnear V1.1 (C) Dr. Andrew C.R Martin, \
 UCL\n");
 
-   fprintf(stderr,"\nUsage: getrnaandnear [infile [outfile]]\n");
+   fprintf(stderr,"\nUsage: getrnaandnear [-r] [infile [outfile]]\n");
+   fprintf(stderr,"       -r Do residues rather than whole chains\n");
 
    fprintf(stderr,"\ngetrnaandnear extracts RNA chains and chains that \
 are within %.1f A\n", (REAL)DISTCUTOFF);
@@ -608,4 +668,94 @@ are within %.1f A\n", (REAL)DISTCUTOFF);
 structures such\n");
    fprintf(stderr,"as ribosomes before processing with programs like \
 ligplot\n\n");
+}
+
+
+/************************************************************************/
+/*>void FindResiduesNearRNA(PDBSTRUCT *pdbs)
+   -----------------------------------------
+   Identifies and flags residues which are near to RNA
+
+   05.03.10 Original   By: ACRM
+*/
+void FindResiduesNearRNA(PDBSTRUCT *pdbs)
+{
+   PDBCHAIN   *chain1, *chain2;
+   PDBRESIDUE *r;
+   PDB        *p, *q;
+      
+   /* Run through each chain                                            */
+   for(chain1=pdbs->chains; chain1!=NULL; NEXT(chain1))
+   {
+      /* If it's RNA                                                    */
+      if(((CHAININFO *)chain1->extras)->type == CHAIN_RNA)
+      {
+         /* Run through all other chains                                */
+         for(chain2=pdbs->chains; chain2!=NULL; NEXT(chain2))
+         {
+            /* If it's not RNA                                          */
+            if(((CHAININFO *)chain2->extras)->type != CHAIN_RNA)
+            {
+               /* If the bounding boxes of the chains are close enough  */
+               if(CheckBounds(chain1, chain2))
+               {
+                  /* Run through atoms in first (RNA) chain             */
+                  for(p=chain1->start; p!=chain1->stop; NEXT(p))
+                  {
+                     /* Run through residues in second (non-RNA) chain  */
+                     for(r=chain2->residues; r!=NULL; NEXT(r))
+                     {
+                        /* If this residue not flagged as near RNA      */
+                        if(!r->extras)
+                        {
+                           /* Run through atoms in this residue         */
+                           for(q=r->start; q!=r->stop; NEXT(q))
+                           {
+                              /* If they are within specified distance  */
+                              if(DISTSQ(p,q) < DISTCUTOFFSQ)
+                              {
+                                 /* Flag the reside from the second 
+                                    (non-RNA) chain as being near RNA   
+                                 */
+                                 r->extras = (APTR *)1;
+                                 fprintf(stderr, 
+                                         "Near Residue %s %c%d%c\n",
+                                         r->start->resnam,
+                                         r->start->chain[0],
+                                         r->start->resnum,
+                                         r->start->insert[0]);
+                                 goto breakout;
+                              }
+                           }  /* for() atoms in this residue            */
+                        }  /* Residue not already flagged as near RNA   */
+breakout:               continue;
+                     }  /* for() residues in second chain               */
+                  }  /* for() atoms in first chain                      */
+               }  /* if boxes are close enough                          */
+            }  /* if second chain not already RNA or NEAR               */
+         }  /* for() each second chain                                  */
+      }  /* if first chain is RNA                                       */
+   }  /* for() each first chain                                         */
+}
+
+
+/************************************************************************/
+/*>void ClearResidueFlags(PDBSTRUCT *pdbs)
+   ---------------------------------------
+   Run through all residues setting the 'extras' flag to zero
+
+   05.03.10  Original   By: ACRM
+*/
+void ClearResidueFlags(PDBSTRUCT *pdbs)
+{
+   PDBCHAIN   *c;
+   PDBRESIDUE *r;
+   
+   for(c=pdbs->chains; c!=NULL; NEXT(c))
+   {
+      for(r=c->residues; r!=NULL; NEXT(r))
+      {
+         r->extras = (APTR *)0;
+      }
+   }
 }
