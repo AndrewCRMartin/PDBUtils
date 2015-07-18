@@ -75,8 +75,8 @@
 #define CHAIN_NEAR   2
 
 /* Distance cutoffs                                                     */
-#define DISTCUTOFF 8
-#define DISTCUTOFFSQ 64   /* 8A cutoff */
+#define DISTCUTOFF 4
+#define DISTCUTOFFSQ 16   /* 8A cutoff */
 
 /* String buffer                                                        */
 #define MAXBUFF 1024
