@@ -1,0 +1,43 @@
+CC = gcc 
+COPT = -O3 -ansi -pedantic -Wall -I$(INCDIR) -L$(LIBDIR)
+#COPT = -g -ansi -pedantic -Wall -I$(INCDIR) -L$(LIBDIR)
+LIBS = -lm
+EXE  = cdrcontacts
+OBJS  = cdrcontacts.o
+BIOP  = bioplib/ReadPDB.o \
+        bioplib/chindex.o\
+        bioplib/FindNextResidue.o \
+        bioplib/FreeStringList.o \
+        bioplib/fsscanf.o \
+        bioplib/InPDBZone.o \
+        bioplib/OpenStdFiles.o \
+        bioplib/ParseRes.o \
+        bioplib/StoreString.o\
+        bioplib/padterm.o\
+        bioplib/WritePDB.o\
+        bioplib/FindResidue.o\
+        bioplib/BuildConect.o\
+        bioplib/IndexPDB.o
+
+
+
+all : $(EXE)
+
+cdrcontacts : $(OBJS) $(BIOP)
+	$(CC) $(COPT) -o $@ $(OBJS) $(BIOP) $(LIBS)
+
+.c.o : 
+	$(CC) $(COPT) -c -o $@ $<
+
+install : $(EXE)
+	mkdir -p $(HOME)/bin
+	cp $(EXE) $(HOME)/bin
+
+clean :
+	\rm -f $(OBJS) $(BIOP)
+
+distclean : clean
+	\rm -f $(EXE)
+
+
+
