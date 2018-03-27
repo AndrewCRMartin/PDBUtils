@@ -80,8 +80,8 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
                   BOOL *doHis, BOOL *doSA);
 void Usage(void);
 void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis,
-                                    BOOL doSolv);
-BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSolv);
+                                    BOOL doSA);
+BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSA);
 int FindSBAtoms(PDB *p, PDB **atoms, int maxsbatoms);
 BOOL TestSBDistance(PDB **pAtoms, int NAtomsP, PDB **qAtoms, int NAtomsQ,
                     PDB **pAtom, PDB **qAtom, REAL *distance);
@@ -130,7 +130,7 @@ int main(int argc, char **argv)
                blCalcAccess(pdb, natoms, (REAL)0.0, (REAL)1.4, TRUE);
             }
 
-            CalculateAndDisplaySaltbridges(out, pdb, doHis, doSolv);
+            CalculateAndDisplaySaltbridges(out, pdb, doHis, doSA);
          }
          else
          {
@@ -157,7 +157,7 @@ output file\n");
 
 
 void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis,
-                                    BOOL doSolv)
+                                    BOOL doSA)
 {
    PDB *p, *pNextRes,
        *q, *qNextRes;
@@ -169,13 +169,13 @@ void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis,
       for(q=pNextRes; q!=NULL; q=qNextRes)
       {
          qNextRes = blFindNextResidue(q);
-         PrintSaltBridge(out, p, q, doHis, doSolv);
+         PrintSaltBridge(out, p, q, doHis, doSA);
       }
    }
 }
 
 
-BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSolv)
+BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSA)
 {
    BOOL potentialSB = FALSE;
    
@@ -200,7 +200,7 @@ BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSolv)
       }
    }
 
-   if(potentialSB && doSolv)
+   if(potentialSB && doSA)
    {
       REAL totalP = (REAL)0.0,
          totalQ = (REAL)0.0;
@@ -208,8 +208,8 @@ BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSolv)
       totalP = SumSolv(p);
       totalQ = SumSolv(q);
 
-      if((totalP < (REAL)20.0) ||
-         (totalQ < (REAL)20.0))
+      if((totalP < (REAL)50.0) ||
+         (totalQ < (REAL)50.0))
       {
          potentialSB = FALSE;
       }
