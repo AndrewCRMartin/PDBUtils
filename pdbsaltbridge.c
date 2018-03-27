@@ -57,6 +57,7 @@
 #include "bioplib/macros.h"
 #include "bioplib/pdb.h"
 #include "bioplib/general.h"
+#include "bioplib/access.h"
 
 /************************************************************************/
 /* Defines and macros
@@ -64,6 +65,8 @@
 #define MAXBUFF    256
 #define MAXSBATOMS   8
 #define SBDISTSQ   (REAL)16.0
+#define DATADIR    "DATADIR"
+#define DEF_RESRADFILE "radii.dat"
 
 /************************************************************************/
 /* Globals
@@ -74,14 +77,17 @@
 */
 int main(int argc, char **argv);
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile, 
-                  BOOL *doHis);
+                  BOOL *doHis, BOOL *doSA);
 void Usage(void);
-void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis);
-BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis);
+void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis,
+                                    BOOL doSolv);
+BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSolv);
 int FindSBAtoms(PDB *p, PDB **atoms, int maxsbatoms);
 BOOL TestSBDistance(PDB **pAtoms, int NAtomsP, PDB **qAtoms, int NAtomsQ,
                     PDB **pAtom, PDB **qAtom, REAL *distance);
 REAL CalcCADistance(PDB *p, PDB *q);
+REAL SumSolv(PDB *start);
+
 
 
 /************************************************************************/
@@ -91,17 +97,40 @@ int main(int argc, char **argv)
         outFile[MAXBUFF];
    FILE *in  = stdin,
         *out = stdout;
-   BOOL doHis = FALSE;
+   BOOL doHis = FALSE,
+      doSA = FALSE,
+      noEnv = FALSE;
    int  natoms;
    PDB  *pdb;
+   char resradFile[MAXBUFF];
+
+   strcpy(resradFile, DEF_RESRADFILE);
    
-   if(ParseCmdLine(argc, argv, inFile, outFile, &doHis))
+   if(ParseCmdLine(argc, argv, inFile, outFile, &doHis, &doSA))
    {
       if(blOpenStdFiles(inFile, outFile, &in, &out))
       {
          if((pdb=blReadPDB(in, &natoms))!=NULL)
          {
-            CalculateAndDisplaySaltbridges(out, pdb, doHis);
+            if(doSA)
+            {
+               FILE   *fpRad  = NULL;
+
+               if((fpRad = blOpenFile(resradFile, DATADIR, "r", &noEnv))==NULL)
+               {
+                  fprintf(stderr,"pdbsaltbridge: Unable to open residue radius file (%s)\n", resradFile);
+                  if(noEnv)
+                  {
+                     fprintf(stderr,"               Environment variable (%s) notg set\n", DATADIR);
+                  }
+                  return(1);
+               }
+               
+               blSetAtomRadii(pdb, fpRad);
+               blCalcAccess(pdb, natoms, (REAL)0.0, (REAL)1.4, TRUE);
+            }
+
+            CalculateAndDisplaySaltbridges(out, pdb, doHis, doSolv);
          }
          else
          {
@@ -127,7 +156,8 @@ output file\n");
 
 
 
-void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis)
+void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis,
+                                    BOOL doSolv)
 {
    PDB *p, *pNextRes,
        *q, *qNextRes;
@@ -139,18 +169,13 @@ void CalculateAndDisplaySaltbridges(FILE *out, PDB *pdb, BOOL doHis)
       for(q=pNextRes; q!=NULL; q=qNextRes)
       {
          qNextRes = blFindNextResidue(q);
-#ifdef DEBUG
-         fprintf(stderr,"Testing %s%d%s : %s%d%s\n",
-                 p->chain, p->resnum, p->insert,
-                 q->chain, q->resnum, q->insert);
-#endif
-         PrintSaltBridge(out, p, q, doHis);
+         PrintSaltBridge(out, p, q, doHis, doSolv);
       }
    }
 }
 
 
-BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis)
+BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis, BOOL doSolv)
 {
    BOOL potentialSB = FALSE;
    
@@ -175,6 +200,21 @@ BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis)
       }
    }
 
+   if(potentialSB && doSolv)
+   {
+      REAL totalP = (REAL)0.0,
+         totalQ = (REAL)0.0;
+
+      totalP = SumSolv(p);
+      totalQ = SumSolv(q);
+
+      if((totalP < (REAL)20.0) ||
+         (totalQ < (REAL)20.0))
+      {
+         potentialSB = FALSE;
+      }
+   }
+
    if(potentialSB)
    {
       PDB *pAtoms[MAXSBATOMS], *qAtoms[MAXSBATOMS],
@@ -187,7 +227,7 @@ BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis)
               p->resnam, p->chain, p->resnum, p->insert,
               q->resnam, q->chain, q->resnum, q->insert);
 #endif
-   
+
       NAtomsP = FindSBAtoms(p, pAtoms, MAXSBATOMS);
 #ifdef DEBUG
       {
@@ -243,6 +283,20 @@ BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis)
    return(FALSE);
 }
 
+
+REAL SumSolv(PDB *start)
+{
+   PDB *p, *stop;
+   REAL sum = (REAL)0.0;
+   
+   stop = blFindNextResidue(start);
+   for(p=start; p!=stop; NEXT(p))
+   {
+      sum += p->access;
+   }
+   return(sum);
+   
+}
 
 REAL CalcCADistance(PDB *p, PDB *q)
 {
@@ -372,7 +426,7 @@ BOOL TestSBDistance(PDB **pAtoms, int NAtomsP, PDB **qAtoms, int NAtomsQ,
 -  27.02.14 V2.0
 */
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile, 
-                  BOOL *doHis)
+                  BOOL *doHis, BOOL *doSA)
 {
    argc--;
    argv++;
@@ -387,6 +441,9 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
          {
          case 'H':
             *doHis = TRUE;
+            break;
+         case 's':
+            *doSA = TRUE;
             break;
          default:
             return(FALSE);
