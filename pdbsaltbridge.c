@@ -178,7 +178,7 @@ BOOL PrintSaltBridge(FILE *out, PDB *p, PDB *q, BOOL doHis)
    if(potentialSB)
    {
       PDB *pAtoms[MAXSBATOMS], *qAtoms[MAXSBATOMS],
-         *pAtom, *qAtom;
+          *pAtom = NULL, *qAtom = NULL;
       REAL distance;
       int NAtomsP, NAtomsQ;
 
