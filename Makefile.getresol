@@ -1,0 +1,10 @@
+CC     = cc
+EXE    = getresol
+OFILES = getresol.o
+BFILES = bioplib/ResolPDB.o bioplib/GetWord.o bioplib/array2.o 
+
+$(EXE) : $(OFILES) $(BFILES)
+	$(CC) -o $@ $(OFILES) $(BFILES)
+
+.c.o :
+	$(CC) -c -o $@ $<
