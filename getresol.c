@@ -46,6 +46,9 @@
 
    Revision History:
    =================
+   V0.1    00.00.95  Original
+   V0.2    03.06.19  No longer uses buffer that messed things up when 
+                     there was no valid info.
 
 *************************************************************************/
 /* Includes
@@ -73,8 +76,7 @@
 int main(int argc, char **argv)
 {
    FILE *pdbfp;
-   char buffer[MAXBUFF],
-        type[MAXBUFF];
+   char type[MAXBUFF];
    REAL resol, RFac;
    int StrucType;
    
@@ -128,7 +130,7 @@ int main(int argc, char **argv)
       }
       else
       {
-         printf("%s: No valid info\n",buffer);
+         printf("No valid info\n");
       }
       
       fclose(pdbfp);

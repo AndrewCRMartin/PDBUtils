@@ -1,4 +1,4 @@
-VERSION=V0.1
+VERSION=V0.2
 
 TARGET=getresol_$(VERSION)
 BIOPLIB=${HOME}/git/bioplib/src
