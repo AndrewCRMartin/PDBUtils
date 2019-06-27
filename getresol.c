@@ -1,14 +1,14 @@
 /*************************************************************************
 
-   Program:    
-   File:       
+   Program:    getresol
+   File:       getresol.c
    
-   Version:    
-   Date:       
+   Version:    V0.2
+   Date:       03.06.19
    Function:   
    
-   Copyright:  (c) Dr. Andrew C. R. Martin 1995
-   Author:     Dr. Andrew C. R. Martin
+   Copyright:  (c) Prof. Andrew C. R. Martin 1995-2019
+   Author:     Prof. Andrew C. R. Martin
    Address:    Biomolecular Structure & Modelling Unit,
                Department of Biochemistry & Molecular Biology,
                University College,
@@ -142,9 +142,3 @@ int main(int argc, char **argv)
    }
    return(0);
 }
-
-               
-         
-      
-      
-  
