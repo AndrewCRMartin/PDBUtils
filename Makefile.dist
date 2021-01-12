@@ -1,0 +1,39 @@
+CC     = gcc
+#COPT   = -O3 -I$(HOME)/include -L$(HOME)/lib
+COPT   = -O3 
+EXE    = protrusion
+OFILES = protrusion.o
+#LIBS   = -lbiop -lgen -lm -lxml2
+LIBS   = -lm
+LFILES = bioplib/ReadPDB.o         \
+         bioplib/fsscanf.o         \
+         bioplib/padterm.o         \
+         bioplib/FreeStringList.o  \
+         bioplib/chindex.o         \
+         bioplib/WritePDB.o        \
+         bioplib/BuildConect.o     \
+         bioplib/FindNextResidue.o \
+         bioplib/FindResidue.o     \
+         bioplib/OpenStdFiles.o    \
+         bioplib/SelectCaPDB.o     \
+         bioplib/DistPtLine.o      \
+         bioplib/ParseRes.o        \
+         bioplib/VecLen3.o         \
+         bioplib/VecSub3.o         \
+         bioplib/CrossProd3.o      \
+         bioplib/FindResidueSpec.o \
+         bioplib/IndexPDB.o        \
+         bioplib/StoreString.o
+
+$(EXE) : $(OFILES) $(LFILES)
+	$(CC) $(COPT) -o $@ $< $(LFILES) $(LIBS)
+
+.c.o :
+	$(CC) $(COPT) -c -o $@ $<
+
+clean :
+	\rm -f $(OFILES) $(LFILES)
+
+distclean : clean
+	\rm -f $(EXE)
+
