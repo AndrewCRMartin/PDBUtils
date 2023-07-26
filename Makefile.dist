@@ -1,0 +1,35 @@
+COPT	= -O3 
+CC	= cc
+
+EXE	= calcpdbdistance
+OFILES1	= calcpdbdistance.o
+LFILES1  = bioplib/ReadPDB.o \
+          bioplib/WritePDB.o \
+          bioplib/IndexPDB.o \
+          bioplib/BuildConect.o \
+          bioplib/ParseRes.o \
+          bioplib/chindex.o \
+          bioplib/FreeStringList.o \
+          bioplib/StoreString.o \
+          bioplib/fsscanf.o \
+          bioplib/padterm.o \
+          bioplib/OpenStdFiles.o \
+          bioplib/FindAtomInRes.o \
+          bioplib/FindResidue.o \
+          bioplib/FindResidueSpec.o \
+          bioplib/FindNextResidue.o
+
+all : $(EXE)
+
+calcpdbdistance : $(OFILES1) $(LFILES1)
+	$(CC) -o $@ $(OFILES1) $(LFILES1) -lm
+
+.c.o :
+	$(CC) $(COPT) -o $@ -c $<
+
+clean :
+	/bin/rm -f $(OFILES1) $(LFILES1)
+
+distclean : clean
+	/bin/rm -f $(EXE)
+
