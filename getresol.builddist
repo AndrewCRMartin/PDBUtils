@@ -1,0 +1,23 @@
+VERSION=V0.2
+
+TARGET=getresol_$(VERSION)
+BIOPLIB=${HOME}/git/bioplib/src
+IN=${HOME}/git/cprogs/jiffies
+
+FILES=getresol.c
+>cp $(BIOPLIB)/../COPYING.DOC $(TARGET)/bioplib
+>cp $(IN)/Makefile.getresol   $(TARGET)/Makefile
+
+BIOPFILES
+  array2.c
+  array.h
+  deprecated.h
+  general.h
+  GetWord.c
+  hash.h
+  macros.h
+  MathType.h
+  pdb.h
+  ResolPDB.c
+  SysDefs.h
+//
